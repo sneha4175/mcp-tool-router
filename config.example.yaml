@@ -1,0 +1,142 @@
+# Example gateway configuration.
+#
+# Declares the upstream MCP servers this gateway fronts and, for the offline
+# "mock" transport, the tools each one exposes. Copy this to `config.yaml` and
+# edit for your own servers. Point the gateway at it with MCP_ROUTER_CONFIG.
+#
+# transport:
+#   mock  -> offline; tools listed inline, calls echoed by a MockUpstream.
+#   stdio -> a real MCP server launched as a subprocess (roadmap; see README).
+
+servers:
+  - name: weather
+    transport: mock
+    tools:
+      - name: get_current_weather
+        description: Get the current temperature and conditions for a city.
+        inputSchema:
+          type: object
+          properties:
+            city: { type: string }
+          required: [city]
+      - name: get_forecast
+        description: Get a multi-day weather forecast for a location.
+        inputSchema:
+          type: object
+          properties:
+            location: { type: string }
+            days: { type: integer }
+
+  - name: finance
+    transport: mock
+    tools:
+      - name: convert_currency
+        description: Convert a monetary amount from one currency to another.
+        inputSchema:
+          type: object
+          properties:
+            amount: { type: number }
+            from_currency: { type: string }
+            to_currency: { type: string }
+      - name: get_stock_price
+        description: Look up the latest share price for a stock ticker symbol.
+        inputSchema:
+          type: object
+          properties:
+            symbol: { type: string }
+      - name: portfolio_value
+        description: Compute the total market value of a portfolio of holdings.
+        inputSchema:
+          type: object
+          properties:
+            holdings: { type: array }
+
+  - name: files
+    transport: mock
+    tools:
+      - name: read_file
+        description: Read the contents of a file from disk.
+        inputSchema:
+          type: object
+          properties:
+            path: { type: string }
+      - name: write_file
+        description: Write text content to a file on disk.
+        inputSchema:
+          type: object
+          properties:
+            path: { type: string }
+            content: { type: string }
+      - name: list_directory
+        description: List the files and folders inside a directory.
+        inputSchema:
+          type: object
+          properties:
+            path: { type: string }
+      - name: search_files
+        description: Search for files whose contents match a text pattern.
+        inputSchema:
+          type: object
+          properties:
+            pattern: { type: string }
+            root: { type: string }
+
+  - name: email
+    transport: mock
+    tools:
+      - name: send_email
+        description: Send an email message to one or more recipients.
+        inputSchema:
+          type: object
+          properties:
+            to: { type: string }
+            subject: { type: string }
+            body: { type: string }
+      - name: search_inbox
+        description: Search received email messages by keyword or sender.
+        inputSchema:
+          type: object
+          properties:
+            query: { type: string }
+
+  - name: calendar
+    transport: mock
+    tools:
+      - name: create_event
+        description: Create a calendar event with a title, time, and attendees.
+        inputSchema:
+          type: object
+          properties:
+            title: { type: string }
+            start: { type: string }
+            attendees: { type: array }
+      - name: list_events
+        description: List upcoming calendar events in a date range.
+        inputSchema:
+          type: object
+          properties:
+            start: { type: string }
+            end: { type: string }
+
+  - name: devtools
+    transport: mock
+    tools:
+      - name: run_shell_command
+        description: Execute a shell command and capture its output.
+        inputSchema:
+          type: object
+          properties:
+            command: { type: string }
+      - name: git_status
+        description: Show the working tree status of a git repository.
+        inputSchema:
+          type: object
+          properties:
+            repo_path: { type: string }
+      - name: translate_text
+        description: Translate a piece of text from one language into another.
+        inputSchema:
+          type: object
+          properties:
+            text: { type: string }
+            target_language: { type: string }
