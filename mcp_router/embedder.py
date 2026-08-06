@@ -110,20 +110,32 @@ class HashingEmbedder(Embedder):
         return vectors
 
 
+#: The embedder used when ``MCP_ROUTER_EMBEDDER`` is unset. As of v0.2 the
+#: default is a real, local semantic model so retrieval understands synonyms out
+#: of the box. Set ``MCP_ROUTER_EMBEDDER=hashing`` for the dependency-free,
+#: fully-offline, deterministic embedder (used by the test suite and CI).
+DEFAULT_EMBEDDER = "sentence-transformers"
+
+
 def get_embedder() -> Embedder:
     """Return the embedder selected by environment configuration.
 
     ``MCP_ROUTER_EMBEDDER`` picks the implementation:
 
-    * ``hashing`` (default) - the offline :class:`HashingEmbedder`.
-    * ``sentence-transformers`` - a real semantic embedder. Loaded lazily so the
-      dependency is only required when actually requested. The model name is
-      taken from ``MCP_ROUTER_ST_MODEL`` (default ``all-MiniLM-L6-v2``).
+    * ``sentence-transformers`` (**default**) - a real local semantic embedder
+      (``all-MiniLM-L6-v2``). Loaded lazily; the model (~80MB) downloads once on
+      first use and is then cached. Understands meaning, not just shared words.
+    * ``hashing`` - the offline, deterministic :class:`HashingEmbedder`. No
+      download, no dependencies; ideal for tests, CI, and air-gapped runs. It
+      matches lexical overlap only.
+
+    The model name for the sentence-transformers embedder comes from
+    ``MCP_ROUTER_ST_MODEL`` (default ``all-MiniLM-L6-v2``).
 
     Keeping selection here means the rest of the codebase depends only on the
     :class:`Embedder` interface, never on a concrete model.
     """
-    kind = os.environ.get("MCP_ROUTER_EMBEDDER", "hashing").lower()
+    kind = os.environ.get("MCP_ROUTER_EMBEDDER", DEFAULT_EMBEDDER).lower()
 
     if kind == "hashing":
         dim = int(os.environ.get("MCP_ROUTER_HASH_DIM", "256"))
@@ -151,12 +163,17 @@ class _SentenceTransformerEmbedder(Embedder):
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:  # pragma: no cover - exercised only with the extra installed
             raise ImportError(
-                "MCP_ROUTER_EMBEDDER=sentence-transformers requires the "
-                "'sentence-transformers' package. Install it with "
-                "`pip install sentence-transformers`."
+                "The default embedder needs the 'sentence-transformers' package. "
+                "Install it with `pip install sentence-transformers`, or run fully "
+                "offline with the deterministic fallback by setting "
+                "MCP_ROUTER_EMBEDDER=hashing."
             ) from exc
         self._model = SentenceTransformer(model_name)
-        self.dim = int(self._model.get_sentence_embedding_dimension())
+        # get_sentence_embedding_dimension() was renamed; support both.
+        get_dim = getattr(self._model, "get_sentence_embedding_dimension", None) or (
+            self._model.get_embedding_dimension
+        )
+        self.dim = int(get_dim())
 
     def embed(self, texts: Sequence[str]) -> np.ndarray:  # pragma: no cover - needs the model
         return np.asarray(

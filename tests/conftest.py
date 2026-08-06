@@ -7,6 +7,14 @@ machine and every run.
 
 from __future__ import annotations
 
+import os
+
+# The default embedder is a real model as of v0.2; force the offline hashing
+# embedder for the whole suite so tests never download weights or hit a network.
+# Individual tests still inject their own embedder, but this covers any code path
+# that falls back to get_embedder().
+os.environ.setdefault("MCP_ROUTER_EMBEDDER", "hashing")
+
 import pytest
 
 from mcp_router.config import parse_config
