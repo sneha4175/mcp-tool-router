@@ -19,10 +19,12 @@ Config shape (YAML shown; JSON with the same keys also works)::
                 location: {type: string}
       - name: filesystem
         transport: stdio           # real MCP server launched as a subprocess
-        command: ["python", "-m", "some_mcp_server"]
+        command: npx               # executable
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/data"]
+        env: {}                    # optional extra environment variables
 
-Only ``mock`` transport is fully wired for the MVP; ``stdio`` is parsed and
-documented so the real-MCP milestone is a drop-in (see README roadmap).
+Both transports are fully wired: ``mock`` serves inline tools offline, ``stdio``
+launches a real MCP server and speaks the protocol to it via the ``mcp`` SDK.
 """
 
 from __future__ import annotations
@@ -41,7 +43,11 @@ class ServerConfig:
 
     name: str
     transport: str = "mock"
-    command: List[str] = field(default_factory=list)
+    # stdio transport: the executable and its arguments.
+    command: str = ""
+    args: List[str] = field(default_factory=list)
+    env: Dict[str, str] = field(default_factory=dict)
+    # mock transport: inline tool definitions.
     tools: List[ToolDef] = field(default_factory=list)
 
 
@@ -83,11 +89,24 @@ def parse_config(data: Dict[str, Any]) -> GatewayConfig:
         seen.add(name)
 
         tools = [_parse_tool(t, upstream=name) for t in raw_server.get("tools", [])]
+
+        # ``command`` may be a plain string ("npx") or, for convenience, a list
+        # whose first element is the executable and the rest are arguments.
+        raw_command = raw_server.get("command", "")
+        args = list(raw_server.get("args", []) or [])
+        if isinstance(raw_command, list):
+            command = raw_command[0] if raw_command else ""
+            args = list(raw_command[1:]) + args
+        else:
+            command = raw_command or ""
+
         servers.append(
             ServerConfig(
                 name=name,
                 transport=raw_server.get("transport", "mock"),
-                command=raw_server.get("command", []) or [],
+                command=command,
+                args=args,
+                env=dict(raw_server.get("env", {}) or {}),
                 tools=tools,
             )
         )

@@ -14,11 +14,29 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from .config import GatewayConfig, load_config
+from .config import GatewayConfig, ServerConfig, load_config
 from .embedder import Embedder, get_embedder
 from .models import ToolDef
 from .retrieval import Retriever
-from .upstream import MockUpstream, Upstream
+from .upstream import MockUpstream, StdioUpstream, Upstream
+
+
+def _build_upstream(server: ServerConfig) -> Upstream:
+    """Construct the transport for one configured upstream server."""
+    transport = (server.transport or "mock").lower()
+    if transport == "mock":
+        return MockUpstream(server.name, tools=server.tools)
+    if transport == "stdio":
+        return StdioUpstream(
+            server.name,
+            command=server.command,
+            args=server.args,
+            env=server.env,
+        )
+    raise ValueError(
+        f"server {server.name!r}: unknown transport {server.transport!r} "
+        f"(expected 'mock' or 'stdio')"
+    )
 
 
 class ToolRegistry:
@@ -29,13 +47,21 @@ class ToolRegistry:
         self.retriever = Retriever(embedder or get_embedder())
         self._upstreams: Dict[str, Upstream] = {}
 
-        for server in config.servers:
-            # For the MVP every transport is served by a MockUpstream. When real
-            # stdio support lands, this is where a StdioUpstream would be built
-            # for servers whose transport == "stdio".
-            self._upstreams[server.name] = MockUpstream(server.name)
-
-        self.retriever.index(config.all_tools())
+        # Build each upstream and discover its tools. For mock upstreams the
+        # tools come straight from the config; for stdio upstreams they are
+        # fetched live from the real server over the wire. Either way the tools
+        # arrive tagged with their owning upstream, so routing stays correct.
+        all_tools: List[ToolDef] = []
+        try:
+            for server in config.servers:
+                upstream = _build_upstream(server)
+                self._upstreams[server.name] = upstream
+                all_tools.extend(upstream.list_tools())
+            self.retriever.index(all_tools)
+        except Exception:
+            # Don't leak subprocesses if discovery/indexing fails partway.
+            self.close()
+            raise
 
     # ---- construction helpers ------------------------------------------------
 
@@ -79,3 +105,19 @@ class ToolRegistry:
         if upstream is None:  # pragma: no cover - config guarantees this exists
             raise KeyError(f"no upstream for tool {name!r} (upstream {tool.upstream!r})")
         return upstream.call(name, arguments)
+
+    # ---- lifecycle -----------------------------------------------------------
+
+    def close(self) -> None:
+        """Tear down every upstream (e.g. terminate stdio subprocesses)."""
+        for upstream in self._upstreams.values():
+            try:
+                upstream.close()
+            except Exception:  # pragma: no cover - best-effort cleanup
+                pass
+
+    def __enter__(self) -> "ToolRegistry":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()

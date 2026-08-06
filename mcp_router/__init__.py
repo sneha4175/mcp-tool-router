@@ -10,9 +10,10 @@ from .embedder import Embedder, HashingEmbedder, get_embedder
 from .models import ToolDef
 from .registry import ToolRegistry
 from .retrieval import Retriever
+from .upstream import MockUpstream, StdioUpstream, Upstream
 from .vectorstore import VectorStore
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "GatewayConfig",
@@ -24,6 +25,9 @@ __all__ = [
     "ToolDef",
     "ToolRegistry",
     "Retriever",
+    "Upstream",
+    "MockUpstream",
+    "StdioUpstream",
     "VectorStore",
     "__version__",
 ]

@@ -1,0 +1,28 @@
+# Example configuration using REAL upstream MCP servers over stdio.
+#
+# Each `stdio` server is launched as a subprocess and the gateway speaks the MCP
+# protocol to it via the official `mcp` SDK, discovering its tools live. Point
+# the gateway at this file with MCP_ROUTER_CONFIG, e.g.:
+#
+#   MCP_ROUTER_CONFIG=config.stdio.example.yaml python -m mcp_router.mcp_server
+#
+# transport:
+#   stdio -> a real MCP server subprocess (command + args + optional env)
+#   mock  -> offline; tools listed inline, calls echoed (see config.example.yaml)
+
+servers:
+  # A small real MCP server bundled in this repo. Runnable anywhere with Python,
+  # no network or downloads - handy for trying the real transport immediately.
+  - name: example
+    transport: stdio
+    command: python
+    args: ["examples/example_upstream_server.py"]
+
+  # The official filesystem MCP server, fetched and run via npx. Requires Node.
+  # It exposes ~14 real tools (read_file, write_file, list_directory, ...).
+  # Replace the path with a directory you want to expose.
+  - name: filesystem
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    env: {}
