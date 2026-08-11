@@ -98,6 +98,11 @@ def create_app(registry: ToolRegistry) -> FastAPI:
     def healthz() -> Dict[str, Any]:
         return {"status": "ok", "tools": registry.tool_count()}
 
+    @app.get("/stats")
+    def stats() -> Dict[str, Any]:
+        # Operational metrics, incl. the v0.3 query-cache hit/miss counters.
+        return registry.stats()
+
     @app.post("/")
     async def rpc(request: Request) -> JSONResponse:
         try:

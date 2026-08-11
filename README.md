@@ -2,8 +2,10 @@
 
 **A self-hostable MCP proxy that exposes only the top-k semantically relevant tools per query — instead of every tool from every server.**
 
-[![tests](https://img.shields.io/badge/tests-32%20passing-brightgreen)](#running-the-tests) [![python](https://img.shields.io/badge/python-3.11%2B-blue)](#requirements) [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![tests](https://img.shields.io/badge/tests-49%20passing-brightgreen)](#running-the-tests) [![python](https://img.shields.io/badge/python-3.11%2B-blue)](#requirements) [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
+> **v0.3** — a **query→tool-set cache** (TTL + LRU) so repeated queries skip re-embedding and vector search, with hit/miss stats on `/stats`. See [v0.3: query caching](#v03-query-caching).
+>
 > **v0.2** — real MCP transport over the official [`mcp`](https://pypi.org/project/mcp/) SDK (the gateway is now a real MCP **client** *and* a real MCP **server**), and a real local semantic embedder by default. See [what's verified vs roadmap](#whats-verified-vs-roadmap).
 
 ---
@@ -232,6 +234,34 @@ servers:
             amount: { type: number }
 ```
 
+## v0.3: query caching
+
+Retrieval is the expensive part of every request — embedding the query and searching the vector store. Real traffic is repetitive (the same phrasings recur, clients retry), so redoing that work for an identical query is pure waste. v0.3 adds a small cache in front of the retriever that memoizes the top-k tool set per query.
+
+**What it does**
+
+- Keys each entry by a **normalized query** (lowercased + trimmed) plus `k`. A repeated query returns the cached tool set **without re-embedding or re-searching**.
+- **TTL expiry** — every entry has a lifetime; a hit past its TTL is recomputed, so results can't go stale indefinitely.
+- **LRU eviction** — the cache holds at most `max_entries`; inserting beyond that drops the least-recently-used entry, capping memory.
+- **Auto-invalidation** — when the tool catalogue changes (`ToolRegistry.refresh()` — upstreams reconnect / tools refresh), the whole cache is cleared so a tool set computed against the old catalogue is never served.
+- **Hit/miss stats** — exposed on the HTTP `GET /stats` endpoint (and `ToolRegistry.stats()`).
+
+**Perf rationale:** the win is skipping the embed + vector-search on repeated queries. With the semantic embedder that avoids a model forward-pass per repeat; a cache hit is a dict lookup.
+
+**Config** — a top-level `cache:` block (all optional; defaults shown):
+
+```yaml
+cache:
+  enabled: true        # set false to bypass the cache entirely
+  ttl_seconds: 300     # how long a cached tool set stays fresh
+  max_entries: 512     # LRU cap on distinct cached (query, k) pairs
+```
+
+```bash
+# hit/miss counters, hit rate, cached-entry count, evictions, invalidations
+curl -s localhost:8000/stats
+```
+
 ## Embedders
 
 The embedder is selected by `MCP_ROUTER_EMBEDDER`:
@@ -259,7 +289,7 @@ pytest
 
 The suite is **offline and deterministic** by design: it forces `MCP_ROUTER_EMBEDDER=hashing` and never downloads a model. It includes real MCP-transport integration tests that launch the bundled example server as a subprocess and speak the actual protocol to it (both the gateway-as-client and gateway-as-server paths).
 
-- **32 passing, 1 skipped** locally. The skipped test connects to the official `@modelcontextprotocol/server-filesystem` via `npx` (needs Node + network); enable it with `MCP_ROUTER_RUN_NPX_TESTS=1 pytest`.
+- **49 passing, 1 skipped** locally. The skipped test connects to the official `@modelcontextprotocol/server-filesystem` via `npx` (needs Node + network); enable it with `MCP_ROUTER_RUN_NPX_TESTS=1 pytest`.
 
 ## What's verified vs roadmap
 
@@ -279,7 +309,7 @@ Honest status for v0.2.
 - **Approximate vector index** (FAISS/hnswlib) for very large tool catalogues — exact search is the right choice for tens–hundreds of tools.
 - **Reranking / hybrid retrieval** (combine lexical + semantic scores).
 - **SSE / streamable-HTTP** MCP transports (only stdio upstreams today).
-- **Resources / prompts** passthrough and **caching** of query→tool-set results.
+- **Resources / prompts** passthrough. *(Caching of query→tool-set results shipped in v0.3.)*
 
 ## License
 

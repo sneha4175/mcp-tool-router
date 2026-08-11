@@ -52,6 +52,15 @@ def main() -> None:
     result = registry.call_tool("convert_currency", {"amount": 100, "from_currency": "USD"})
     print("tools/call convert_currency ->", result["content"][0]["text"])
 
+    # v0.3: the query cache. Re-issuing the same queries is served from cache -
+    # no re-embedding, no vector search. The stats show the resulting hits.
+    for query in QUERIES:
+        registry.retrieve(query, k=TOP_K)  # each is a repeat -> a cache hit
+    cache = registry.stats()["cache"]
+    print()
+    print(f"query cache: {cache['hits']} hits / {cache['misses']} misses "
+          f"(hit rate {cache['hit_rate']:.0%}, {cache['size']} entries cached)")
+
 
 if __name__ == "__main__":
     main()

@@ -12,8 +12,9 @@ is exposed here, keeping the web server thin.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
+from .cache import QueryCache, normalize_query
 from .config import GatewayConfig, ServerConfig, load_config
 from .embedder import Embedder, get_embedder
 from .models import ToolDef
@@ -44,16 +45,33 @@ class ToolRegistry:
 
     def __init__(self, config: GatewayConfig, embedder: Embedder | None = None) -> None:
         self.config = config
-        self.retriever = Retriever(embedder or get_embedder())
+        # Held so we can rebuild the retriever from scratch on refresh() - a
+        # Retriever's vector store is append-only, so re-indexing means a new one.
+        self._embedder = embedder or get_embedder()
+        self.retriever = Retriever(self._embedder)
         self._upstreams: Dict[str, Upstream] = {}
 
-        # Build each upstream and discover its tools. For mock upstreams the
-        # tools come straight from the config; for stdio upstreams they are
-        # fetched live from the real server over the wire. Either way the tools
-        # arrive tagged with their owning upstream, so routing stays correct.
+        # The query-result cache sits in front of retrieve(); see that method.
+        cc = config.cache
+        self._cache = QueryCache(
+            enabled=cc.enabled,
+            ttl_seconds=cc.ttl_seconds,
+            max_entries=cc.max_entries,
+        )
+
+        self._discover_and_index()
+
+    def _discover_and_index(self) -> None:
+        """Build each upstream, discover its tools, and index them.
+
+        For mock upstreams the tools come straight from the config; for stdio
+        upstreams they are fetched live from the real server over the wire.
+        Either way the tools arrive tagged with their owning upstream, so routing
+        stays correct. Extracted from ``__init__`` so ``refresh()`` can reuse it.
+        """
         all_tools: List[ToolDef] = []
         try:
-            for server in config.servers:
+            for server in self.config.servers:
                 upstream = _build_upstream(server)
                 self._upstreams[server.name] = upstream
                 all_tools.extend(upstream.list_tools())
@@ -79,8 +97,27 @@ class ToolRegistry:
         return len(self.retriever.all_tools())
 
     def retrieve(self, query: str, k: int) -> List[Tuple[ToolDef, float]]:
-        """Top-k tools for ``query`` as ``(tool, score)`` pairs."""
-        return self.retriever.retrieve(query, k)
+        """Top-k tools for ``query`` as ``(tool, score)`` pairs.
+
+        This is the cached entry point: a repeated query returns the previously
+        computed tool set without touching the embedder or the vector store.
+
+        Empty/whitespace queries bypass the cache entirely - the retriever
+        already short-circuits them to ``[]`` and there is nothing worth storing.
+        """
+        if not self._cache.enabled or not query or not query.strip():
+            return self.retriever.retrieve(query, k)
+
+        key = normalize_query(query, k)
+        cached = self._cache.get(key)
+        if cached is not None:
+            # Hand back a fresh list so a caller mutating the result can't corrupt
+            # the cached copy. The (tool, score) tuples inside are immutable.
+            return list(cached)
+
+        result = self.retriever.retrieve(query, k)
+        self._cache.set(key, list(result))
+        return list(result)
 
     def list_tools(self, query: str | None = None, k: int = 5) -> List[ToolDef]:
         """Tools to expose to the client.
@@ -105,6 +142,31 @@ class ToolRegistry:
         if upstream is None:  # pragma: no cover - config guarantees this exists
             raise KeyError(f"no upstream for tool {name!r} (upstream {tool.upstream!r})")
         return upstream.call(name, arguments)
+
+    def stats(self) -> Dict[str, Any]:
+        """Operational snapshot: tool count plus cache hit/miss stats."""
+        return {"tools": self.tool_count(), "cache": self._cache.stats()}
+
+    # ---- mutation ------------------------------------------------------------
+
+    def refresh(self) -> None:
+        """Re-discover tools from every upstream and rebuild the index.
+
+        Call this when the tool catalogue may have changed - e.g. upstreams
+        reconnect or a server adds/removes tools. Because the retriever's vector
+        store is append-only, we rebuild it from a clean slate rather than trying
+        to patch it in place.
+
+        Crucially, the query cache is invalidated afterwards: a tool set cached
+        against the old catalogue could now be wrong (a better-matching tool may
+        have appeared, or a returned tool may be gone), so serving it would be
+        stale. Clearing is the safe, simple choice.
+        """
+        self.close()
+        self._upstreams = {}
+        self.retriever = Retriever(self._embedder)
+        self._discover_and_index()
+        self._cache.clear()
 
     # ---- lifecycle -----------------------------------------------------------
 

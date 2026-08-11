@@ -52,10 +52,29 @@ class ServerConfig:
 
 
 @dataclass
+class CacheConfig:
+    """Query-result cache settings (v0.3).
+
+    All optional with sensible defaults, so existing configs keep working with
+    the cache silently on. Operators tune it under a top-level ``cache:`` block::
+
+        cache:
+          enabled: true
+          ttl_seconds: 300      # how long a cached tool set stays fresh
+          max_entries: 512      # LRU cap on distinct cached queries
+    """
+
+    enabled: bool = True
+    ttl_seconds: float = 300.0
+    max_entries: int = 512
+
+
+@dataclass
 class GatewayConfig:
     """The whole parsed configuration."""
 
     servers: List[ServerConfig] = field(default_factory=list)
+    cache: CacheConfig = field(default_factory=CacheConfig)
 
     def all_tools(self) -> List[ToolDef]:
         tools: List[ToolDef] = []
@@ -110,7 +129,21 @@ def parse_config(data: Dict[str, Any]) -> GatewayConfig:
                 tools=tools,
             )
         )
-    return GatewayConfig(servers=servers)
+
+    cache = _parse_cache(data.get("cache") or {})
+    return GatewayConfig(servers=servers, cache=cache)
+
+
+def _parse_cache(raw: Dict[str, Any]) -> CacheConfig:
+    """Build a :class:`CacheConfig`, falling back to defaults for absent keys."""
+    if not isinstance(raw, dict):
+        raise ValueError("'cache' must be a mapping/object")
+    defaults = CacheConfig()
+    return CacheConfig(
+        enabled=bool(raw.get("enabled", defaults.enabled)),
+        ttl_seconds=float(raw.get("ttl_seconds", defaults.ttl_seconds)),
+        max_entries=int(raw.get("max_entries", defaults.max_entries)),
+    )
 
 
 def load_config(path: str | Path) -> GatewayConfig:

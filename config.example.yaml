@@ -8,6 +8,14 @@
 #   mock  -> offline; tools listed inline, calls echoed by a MockUpstream.
 #   stdio -> a real MCP server launched as a subprocess (roadmap; see README).
 
+# Optional (v0.3): query-result cache. Repeated queries skip re-embedding and
+# vector search. All keys are optional; the defaults shown here apply if the
+# whole block is omitted.
+cache:
+  enabled: true
+  ttl_seconds: 300     # how long a cached tool set stays fresh
+  max_entries: 512     # LRU cap on distinct cached (query, k) pairs
+
 servers:
   - name: weather
     transport: mock
