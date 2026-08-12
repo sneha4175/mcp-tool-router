@@ -16,6 +16,14 @@ cache:
   ttl_seconds: 300     # how long a cached tool set stays fresh
   max_entries: 512     # LRU cap on distinct cached (query, k) pairs
 
+# Optional (v0.4): hybrid retrieval. Blends the semantic (embedding cosine)
+# score with a lexical token-overlap score so a query that names a tool or its
+# keywords surfaces it even when the embedding similarity is only moderate.
+# Defaults shown; omit the block to keep hybrid on with an even blend.
+retrieval:
+  hybrid: true         # false -> pure-semantic (v0.3 behaviour)
+  alpha: 0.5           # final = alpha*semantic + (1 - alpha)*lexical; 1.0 = all semantic, 0.0 = all lexical
+
 servers:
   - name: weather
     transport: mock

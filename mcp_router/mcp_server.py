@@ -45,7 +45,7 @@ def create_mcp_server(registry: ToolRegistry, default_k: int = DEFAULT_K) -> MCP
 
     server = MCPServer(
         name="mcp-tool-router",
-        version="0.2.0",
+        version="0.4.0",
         instructions=(
             "A retrieval gateway over many MCP servers. Call find_tools(query) to "
             "discover the few tools relevant to your task, then call_tool(name, "

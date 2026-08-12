@@ -48,7 +48,8 @@ class ToolRegistry:
         # Held so we can rebuild the retriever from scratch on refresh() - a
         # Retriever's vector store is append-only, so re-indexing means a new one.
         self._embedder = embedder or get_embedder()
-        self.retriever = Retriever(self._embedder)
+        rc = config.retrieval
+        self.retriever = Retriever(self._embedder, hybrid=rc.hybrid, alpha=rc.alpha)
         self._upstreams: Dict[str, Upstream] = {}
 
         # The query-result cache sits in front of retrieve(); see that method.
@@ -144,8 +145,15 @@ class ToolRegistry:
         return upstream.call(name, arguments)
 
     def stats(self) -> Dict[str, Any]:
-        """Operational snapshot: tool count plus cache hit/miss stats."""
-        return {"tools": self.tool_count(), "cache": self._cache.stats()}
+        """Operational snapshot: tool count, retrieval mode, cache stats."""
+        return {
+            "tools": self.tool_count(),
+            "retrieval": {
+                "hybrid": self.retriever.hybrid,
+                "alpha": self.retriever.alpha,
+            },
+            "cache": self._cache.stats(),
+        }
 
     # ---- mutation ------------------------------------------------------------
 
@@ -164,7 +172,8 @@ class ToolRegistry:
         """
         self.close()
         self._upstreams = {}
-        self.retriever = Retriever(self._embedder)
+        rc = self.config.retrieval
+        self.retriever = Retriever(self._embedder, hybrid=rc.hybrid, alpha=rc.alpha)
         self._discover_and_index()
         self._cache.clear()
 

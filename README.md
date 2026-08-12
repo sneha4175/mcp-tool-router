@@ -2,8 +2,10 @@
 
 **A self-hostable MCP proxy that exposes only the top-k semantically relevant tools per query — instead of every tool from every server.**
 
-[![tests](https://img.shields.io/badge/tests-49%20passing-brightgreen)](#running-the-tests) [![python](https://img.shields.io/badge/python-3.11%2B-blue)](#requirements) [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![tests](https://img.shields.io/badge/tests-61%20passing-brightgreen)](#running-the-tests) [![python](https://img.shields.io/badge/python-3.11%2B-blue)](#requirements) [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
+> **v0.4** — **hybrid retrieval**: blends the semantic (embedding cosine) score with a **lexical** token-overlap score so a query that names a tool or its keywords surfaces it even when embedding similarity is only moderate. Configurable `alpha`, default on. See [v0.4: hybrid retrieval](#v04-hybrid-retrieval).
+>
 > **v0.3** — a **query→tool-set cache** (TTL + LRU) so repeated queries skip re-embedding and vector search, with hit/miss stats on `/stats`. See [v0.3: query caching](#v03-query-caching).
 >
 > **v0.2** — real MCP transport over the official [`mcp`](https://pypi.org/project/mcp/) SDK (the gateway is now a real MCP **client** *and* a real MCP **server**), and a real local semantic embedder by default. See [what's verified vs roadmap](#whats-verified-vs-roadmap).
@@ -234,6 +236,34 @@ servers:
             amount: { type: number }
 ```
 
+## v0.4: hybrid retrieval
+
+Pure-embedding retrieval scores *meaning*, which is what you want for *"schedule a meeting"* → `create_event`. But it has a blind spot: an exact **tool-name or keyword** hit can score only moderately when the surrounding words differ, so a semantically-fuzzy distractor can edge out the tool the user literally named. v0.4 blends in a **lexical** signal to fix that.
+
+**What it does**
+
+- Computes a **lexical score** — normalized token overlap between the query and the tool's text (name + description + parameter names): *of the meaningful tokens in the query, what fraction appear in the tool?* Bounded to `[0, 1]`, stopword-aware, no heavy dependency.
+- Blends it with the semantic cosine score by a weight `alpha`:
+
+  ```
+  final = alpha * semantic + (1 - alpha) * lexical
+  ```
+
+- Because a strong keyword match may sit *outside* the semantic top-k, the hybrid path scores the **whole catalogue** before taking the top-k — affordable since a gateway fronts only tens-to-hundreds of tools.
+- `alpha = 1.0` reproduces the v0.3 pure-semantic behaviour; `alpha = 0.0` is pure lexical. The default `0.5` is an even blend.
+
+**Why it helps** — consider the query `"delete_user account"` against two tools, `delete_user` ("Remove an account permanently") and `user_account`. On pure cosine the shorter `user_account` scores *higher* (0.82 vs 0.77) and wins — the exact-name match loses. Blending in lexical coverage (the query fully covers `delete_user`) flips the ranking so the tool the user named comes first. This exact case is pinned in the test suite.
+
+**Config** — a top-level `retrieval:` block (all optional; defaults shown):
+
+```yaml
+retrieval:
+  hybrid: true         # false -> pure-semantic (v0.3 behaviour)
+  alpha: 0.5           # 1.0 = all semantic, 0.0 = all lexical
+```
+
+The active mode is reported on `GET /stats` (`retrieval.hybrid`, `retrieval.alpha`) alongside the cache counters.
+
 ## v0.3: query caching
 
 Retrieval is the expensive part of every request — embedding the query and searching the vector store. Real traffic is repetitive (the same phrasings recur, clients retry), so redoing that work for an identical query is pure waste. v0.3 adds a small cache in front of the retriever that memoizes the top-k tool set per query.
@@ -289,7 +319,7 @@ pytest
 
 The suite is **offline and deterministic** by design: it forces `MCP_ROUTER_EMBEDDER=hashing` and never downloads a model. It includes real MCP-transport integration tests that launch the bundled example server as a subprocess and speak the actual protocol to it (both the gateway-as-client and gateway-as-server paths).
 
-- **49 passing, 1 skipped** locally. The skipped test connects to the official `@modelcontextprotocol/server-filesystem` via `npx` (needs Node + network); enable it with `MCP_ROUTER_RUN_NPX_TESTS=1 pytest`.
+- **61 passing, 1 skipped** locally. The skipped test connects to the official `@modelcontextprotocol/server-filesystem` via `npx` (needs Node + network); enable it with `MCP_ROUTER_RUN_NPX_TESTS=1 pytest`.
 
 ## What's verified vs roadmap
 
@@ -307,9 +337,8 @@ Honest status for v0.2.
 **Deferred (next milestones):**
 
 - **Approximate vector index** (FAISS/hnswlib) for very large tool catalogues — exact search is the right choice for tens–hundreds of tools.
-- **Reranking / hybrid retrieval** (combine lexical + semantic scores).
 - **SSE / streamable-HTTP** MCP transports (only stdio upstreams today).
-- **Resources / prompts** passthrough. *(Caching of query→tool-set results shipped in v0.3.)*
+- **Resources / prompts** passthrough. *(Query→tool-set caching shipped in v0.3; hybrid lexical + semantic retrieval shipped in v0.4.)*
 
 ## License
 

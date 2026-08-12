@@ -70,11 +70,34 @@ class CacheConfig:
 
 
 @dataclass
+class RetrievalConfig:
+    """Retrieval-mode settings (v0.4 hybrid retrieval).
+
+    Hybrid retrieval blends the semantic (embedding cosine) score with a lexical
+    token-overlap score so an exact tool-name/keyword match surfaces even when
+    the embedding similarity is only moderate. Operators tune it under a
+    top-level ``retrieval:`` block::
+
+        retrieval:
+          hybrid: true      # blend semantic + lexical (default). false = pure semantic
+          alpha: 0.5        # weight: final = alpha*semantic + (1-alpha)*lexical
+
+    Defaults keep hybrid **on**: it strictly helps exact-match queries and only
+    reranks within the same catalogue, so existing configs improve for free.
+    Set ``alpha: 1.0`` to reproduce the v0.3 pure-semantic behaviour.
+    """
+
+    hybrid: bool = True
+    alpha: float = 0.5
+
+
+@dataclass
 class GatewayConfig:
     """The whole parsed configuration."""
 
     servers: List[ServerConfig] = field(default_factory=list)
     cache: CacheConfig = field(default_factory=CacheConfig)
+    retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
 
     def all_tools(self) -> List[ToolDef]:
         tools: List[ToolDef] = []
@@ -131,7 +154,8 @@ def parse_config(data: Dict[str, Any]) -> GatewayConfig:
         )
 
     cache = _parse_cache(data.get("cache") or {})
-    return GatewayConfig(servers=servers, cache=cache)
+    retrieval = _parse_retrieval(data.get("retrieval") or {})
+    return GatewayConfig(servers=servers, cache=cache, retrieval=retrieval)
 
 
 def _parse_cache(raw: Dict[str, Any]) -> CacheConfig:
@@ -143,6 +167,20 @@ def _parse_cache(raw: Dict[str, Any]) -> CacheConfig:
         enabled=bool(raw.get("enabled", defaults.enabled)),
         ttl_seconds=float(raw.get("ttl_seconds", defaults.ttl_seconds)),
         max_entries=int(raw.get("max_entries", defaults.max_entries)),
+    )
+
+
+def _parse_retrieval(raw: Dict[str, Any]) -> RetrievalConfig:
+    """Build a :class:`RetrievalConfig`, falling back to defaults for absent keys."""
+    if not isinstance(raw, dict):
+        raise ValueError("'retrieval' must be a mapping/object")
+    defaults = RetrievalConfig()
+    alpha = float(raw.get("alpha", defaults.alpha))
+    if not 0.0 <= alpha <= 1.0:
+        raise ValueError(f"retrieval.alpha must be in [0, 1], got {alpha!r}")
+    return RetrievalConfig(
+        hybrid=bool(raw.get("hybrid", defaults.hybrid)),
+        alpha=alpha,
     )
 
 
