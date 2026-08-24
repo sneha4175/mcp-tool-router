@@ -2,7 +2,7 @@
 
 **A self-hostable MCP proxy that exposes only the top-k semantically relevant tools per query — instead of every tool from every server.**
 
-[![tests](https://img.shields.io/badge/tests-74%20passing-brightgreen)](#running-the-tests) [![python](https://img.shields.io/badge/python-3.11%2B-blue)](#requirements) [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![CI](https://github.com/sneha4175/mcp-tool-router/actions/workflows/ci.yml/badge.svg)](https://github.com/sneha4175/mcp-tool-router/actions/workflows/ci.yml) [![tests](https://img.shields.io/badge/tests-74%20passing-brightgreen)](#running-the-tests) [![python](https://img.shields.io/badge/python-3.11%2B-blue)](#requirements) [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 > **v0.5** — a **retrieval evaluation harness**: measure retrieval quality on a labeled set with the standard IR metrics — **recall@k**, **precision@k**, and **MRR**. Ships a small deterministic smoke dataset and a `python -m mcp_router.eval` CLI. See [v0.5: retrieval evaluation](#v05-retrieval-evaluation).
 >
